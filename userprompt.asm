@@ -44,7 +44,7 @@ read_status:
     mov rax, 0x2000004          ; syscall number for write
     mov rdi, 1                  ; file descriptor 1 is stdout
     lea rsi, [rel pet_names_info]    ; address of the string to output
-    mov rdx, 17                ; length
+    mov rdx, 16                ; length
     syscall
     ;pet names
     mov rax, 0x2000004          ; syscall number for write
@@ -62,17 +62,20 @@ read_status:
 ;save pet names in pet_names seperated by newlines
 names_pets:
     lea r8, [rel pet_status]    ;pointer to pet status data
-
     lea r9, [rel pet_names]     ;pointer to pet names
-
-    add r8, 4                   ;offset to get names
 
 
 loop_names:
     cmp byte [r8], 0                 ;check if 0 terminator is hit
     je names_done
 
-    mov rcx, 20                 ;bytes to skip
+    mov eax, [r8]               ;take first 4 bytes (number and one additional byte - but we'll overwrite it later)
+    mov [r9], eax               ;save first 4 bytes (last one will get overwritten)
+    add r8, 4                   ;offset to get names
+    add r9, 3                   ;move pointer
+    mov byte[r9], 32                ;add a space
+    add r9, 1                   ;move pointer
+
 
     mov rax, [r8]               ;load first 8 bytes
     mov [r9], rax               ;move first 8 bytes
@@ -94,10 +97,11 @@ loop_names:
     mov byte [r9], 10                ;add the newline
     add r9, 1
 
-    add r8, 20                  ;move to next pet
+    add r8, 16                  ;move to next pet
     jmp loop_names
 
 names_done:
+    mov byte[r9], 0             ;0 terminate the finished string
     ret
 
 
@@ -137,4 +141,4 @@ section .data
 
 section .bss
     pet_status: resb 4001
-    pet_names: resb 211
+    pet_names: resb 2501
