@@ -61,6 +61,8 @@ create_new_pet:
     ;increase pet count by 1
     add r11, 1
 
+    ;save the pet ID first
+
     ;prompt for pet type
     mov rax, 0x2000004  ;syscall write
     mov rdi, 1          ;stdout
@@ -236,6 +238,8 @@ names_done:
     mov byte[r9], 0             ;0 terminate the finished string
     ret
 
+;################################# Exit the program #################################
+
 
 end:
     ;goodbye message
@@ -251,11 +255,6 @@ end:
     syscall
 
 
-
-amount_calculated:
-    ;save the amount of pets in r10
-    mov r10, rcx
-    ret
 
 
 section .data
@@ -277,3 +276,5 @@ section .bss
     user_selection: resb 2
     pet_status: resb 4001
     pet_names: resb 2501
+
+    ascii_repr: resb 3
