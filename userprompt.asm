@@ -255,6 +255,37 @@ end:
     syscall
 
 
+;################################# Convert Int Ascii #################################
+;convert a maximum of 3 digit int (1 - 999) to ascii
+;the integer is given in r9, the ascii saved the memory starting at r8
+convert_ascii:
+    ;get the first character
+    mov rax, r9         ;take r9 into rax
+    xor rdx, rdx        ;clear rdx for division
+    mov rcx, 100        ;divisor
+    div rcx             ;quotient in rax, remainder in rdx
+
+    add al, 48          ;convert to ascii
+    mov [r8], al        ;save into address at r8
+
+    add r8, 1           ;increase pointer by 1
+
+    ;get the second character
+    mov rax, rdx        ;move remainder to rax
+    xor rdx, rdx        ;clear rdx for division
+    mov rcx, 10         ;divisor
+    div rcx             ;quotient in rax, remainder in rdx
+
+    add al, 48          ;convert to ascii
+    mov [r8], al        ;save the character
+    add r8, 1           ;increase pointer by 1
+
+    add rdx, 48         ;convert remainder to ascii
+    mov [r8], dl        ;save the character
+    add r8, 1           ;increase pointer by 1
+
+    ret
+
 
 
 section .data
@@ -277,4 +308,4 @@ section .bss
     pet_status: resb 4001
     pet_names: resb 2501
 
-    ascii_repr: resb 3
+    ascii: resb 3
