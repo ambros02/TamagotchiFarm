@@ -63,6 +63,7 @@ display_pet:
 
     xor rax, rax                ;clear rax
     mov al, [r9]                ;get the pet type
+    add al, -48                 ;go from ascii to int
     add r9, 1                   ;move pointer by 1
 
     mov rdx, [r9]               ;get first 8 bytes of the name
@@ -83,16 +84,79 @@ display_pet:
     add r9, 4                   ;move pointer
     add r8, 4                   ;move pointer
 
-    ;call string_type
+    call string_type            ;get the type of pet
+
+    call pet_needs              ;get the needs of the pet (r8 is already in position)
 
     mov rax, 0x2000004
     mov rdi, 1
     lea rsi, [rel pet_display]
-    mov rdx, 28
+    mov rdx, 184
     syscall
 
     ;TODO: adapt this when done
     jmp action_selection
+
+pet_needs:
+    ;add the needs of the pet to the memory buffer to display it to the user
+    ;since the needs are next to each other in memory and all are 8 bytes long we can offset again
+    ;(r8 is the pointer to the memory info being written to then display)
+    push r12        ;save r12 to use as a counter
+    mov r12, 5      ;initialize counter
+    lea rdi, [rel hunger]   ;starting address for needs text
+
+loop_needs:
+    ;save the int from the 3 ascii characters coming from r8 into rax (level of needs)
+    call convert_ascii_to_int_no_checks
+
+    mov rcx, [rdi]      ;get the 8 bytes text for need
+    mov [r8], rcx       ;save 8 bytes to the memory buffer
+    add r8, 8           ;increase pointer
+    mov byte [r8], 91   ;add a [
+    add r8, 1           ;increase pointer
+    mov rcx, 20         ;counter to keep track of how many are filled
+
+loop_display:
+    ;idea show up to 20 # to show a filled bar 0 => (0-4), 20 => 100
+    add rax, -5         ;decrease need by 5
+
+    cmp rax, 0          ;if need is below 0 pad the rest
+    jl pad_display
+
+    mov byte [r8], 35   ;add a #
+    add r8, 1           ;increase pointer
+    add rcx, -1         ;decrease counter
+
+    jmp loop_display    ;loop again
+
+
+
+pad_display:
+    ;for the values remainging in rcx add a space
+    cmp rcx, 0          ;if all the values are done end the string
+    je display_done
+
+    mov byte [r8], 32   ;add a space
+    add r8, 1           ;increase pointer
+    add rcx, -1         ;decrease counter
+
+    jmp pad_display
+
+display_done:
+    mov word [r8], 0x0A5D    ;add ]\n to the end
+    add r8, 2                ;increment pointer
+    add rdi, 8          ;go to the next need text
+    ;note r8 updates automatically from the function
+    add r12, -1         ;decrement overall counter
+    cmp r12, 0
+    je needs_done       ;if all needs are in memory return
+
+    jmp loop_needs
+
+needs_done:
+
+    pop r12             ;restore r12
+    ret
 
 
 string_type:
@@ -107,6 +171,9 @@ string_type:
     mov rcx, [rdx]                  ;move the pet type into rax (8 bytes)
     mov [r8], rcx                   ;save pet type into buffer
     add r8, 8                       ;increase pointer
+
+    mov byte [r8], 10               ;add a newline
+    add r8, 1                       ;move pointer
 
     ret
 
@@ -160,16 +227,58 @@ select_pet:
     mov rdx, 40                 ; length
     syscall
 
-    lea rsi, [rel user_input_prompt]      ; address of the string to output
-    mov rax, 0x2000004          ; syscall number for write
-    mov rdi, 1                  ; file descriptor 1 is stdout
-    mov rdx, 37                 ; length
+    jmp display_pet
+
+
+bad_id_selection:
+
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel bad_id]   ;start buffer message
+    mov rdx, 40             ;length
     syscall
 
-    call display_pet
+    jmp select_pet
 
+pet_not_exist:
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel non_existing_id]   ;start buffer message
+    mov rdx, 107             ;length
+    syscall
+
+    jmp select_pet
+
+;################################# Convert 3 ASCII to int #################################
+convert_ascii_to_int_no_checks:
+    ;take 3 ascii characters from memory starting at address r8 without checks
+    ;calculate the int value and save it into rax
+    mov rax, 0       ;setup rax
+    mov rcx, 3       ;setup counter
+    xor rdx, rdx     ;0 out rdx
+
+int_convert_loop_no_check:
+    mov rsi, 10
+    mul rsi          ;multiply rax by 10
+
+    mov dl, [r9]     ;take the first byte
+    add r9, 1        ;move to the next byte
+
+    add dl, -48          ;subtract ascii to get int value
+    add rax, rdx         ;add the int value to rax
+
+    ;if counter hits 0 conversion is done
+    add rcx, -1         ;decrement counter
+    cmp rcx, 0
+    je convert_done_no_check
+
+    jmp int_convert_loop_no_check    ;continue loop
+
+convert_done_no_check:
+    ret
 
 convert_ascii_to_int:
+    ;use this for inputs, it terminates early when a newline is hit and checks if the nubmers are digits
     ;take up to 3 ascii characters from memory starting at address r8
     ;calculate the int value and save it into r9
     mov rax, 0       ;setup rax
@@ -207,25 +316,6 @@ int_convert_loop:
 
     add r8, 1        ;move to the next byte
     jmp int_convert_loop    ;continue loop
-
-bad_id_selection:
-
-    mov rax, 0x2000004      ;syscall write
-    mov rdi, 1              ;stdout
-    lea rsi, [rel bad_id]   ;start buffer message
-    mov rdx, 40             ;length
-    syscall
-
-    jmp select_pet
-
-pet_not_exist:
-    mov rax, 0x2000004      ;syscall write
-    mov rdi, 1              ;stdout
-    lea rsi, [rel non_existing_id]   ;start buffer message
-    mov rdx, 107             ;length
-    syscall
-
-    jmp select_pet
 
 convert_done:
     ;save the calculated value to r9
@@ -647,6 +737,13 @@ section .data
     bird: db " (Bird) "
     snake: db " (Snake)"
 
+    ;pet needs all padded to length 8
+    hunger: db "Hunger: "
+    thirst: db "Thirst: "
+    love: db "Love:   "
+    sleep: db "Sleep:  "
+    toilet: db "Toilet: "
+
 section .bss
     pet_status: resb 4001
     pet_names: resb 2501
@@ -655,5 +752,5 @@ section .bss
     user_selection: resb 100
 
     ;display pet
-    pet_display: resb 190
+    pet_display: resb 184
 
