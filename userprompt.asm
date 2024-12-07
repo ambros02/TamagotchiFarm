@@ -55,19 +55,22 @@ create_new_pet:
     cmp r11, 100
     je max_pets_reached
 
-    ;get pointer to the end of pet file into r10
+    ;get pointer to the end of pet status into r10
     call move_last_pet
 
-    ;increase pet count by 1
-    add r11, 1
-
     ;save the pet ID first
+    mov r9, r11
+    add r9, 1
+    mov r8, r10
 
+    call convert_ascii
+
+type_prompt:
     ;prompt for pet type
     mov rax, 0x2000004  ;syscall write
     mov rdi, 1          ;stdout
     lea rsi, [rel pet_type] ;starting address of buffer
-    mov rdx, 107        ;length
+    mov rdx, 118        ;length
     syscall
 
     ;get user input
@@ -76,11 +79,155 @@ create_new_pet:
     lea rsi, [rel user_selection]        ;address of input
     mov rdx, 2                 ;2 bytes to read
     syscall
-    ;TODO: add error handling
 
-    ;TODO: change this accordingly when creating works
+    mov al, byte [rel user_selection]   ;take user selection into memory
+
+    ;check for values which are too low
+    cmp al, 49                      ;ascii for 1
+    jl bad_type                     ;too low give message
+
+    ;check for values which are too high
+    cmp al, 54                      ;ascii for 6
+    jg bad_type                     ;too high give message
+    je action_selection             ;if value is 6 return to actions
+
+    mov byte [r8], al               ;save the user selection into memory
+    add r8, 1                       ;move pointer by 1
+    mov r10, r8                     ;move updated pointer back to r10
+
+name_prompt:
+
+    ;prompt for pet type
+    mov rax, 0x2000004  ;syscall write
+    mov rdi, 1          ;stdout
+    lea rsi, [rel pet_name_prompt] ;starting address of buffer
+    mov rdx, 78        ;length
+    syscall
+
+
+    ;get user input
+    mov rax, 0x2000003          ;syscall for read
+    mov rdi, 0                  ;stdin
+    lea rsi, [rel pet_name_input]        ;address of input
+    mov rdx, 20                 ;2 bytes to read
+    syscall
+
+    ;pad the name in the end with spaces
+    call pad_name_input
+
+    mov rax, [rsi]      ;first 8 bytes into register
+    add rsi, 8          ;go to next bytes
+    mov rdi, [rsi]      ;next 8 bytes
+    add rsi, 8          ;go to next bytes
+    mov esi, [rsi]      ;last 4 bytes (8 + 8 + 4 = 20)
+
+    mov [r10], rax      ;save first 8 bytes
+    add r10, 8          ;increment pointer by 8
+    mov [r10], rdi      ;store next 8 bytes
+    add r10, 8          ;increment pointer by 8
+    mov [r10], esi      ;save last 4 bytes
+    add r10, 4          ;increment pointer by 8
+
+
+fill_status:
+    ;for the stats set all to 0 and add a newline in the end
+    mov cl, 15          ;need to set 15 0 for 5 stats 3 zeros
+
+loop_fill:
+    mov byte [r10], 48  ;save a 0 (ascii)
+    add r10, 1          ;increment pointer by 1
+    add cl, -1          ;decrease counter
+
+    cmp cl, 0
+    je save_pet
+
+    jmp loop_fill
+
+save_pet:
+    mov byte [r10], 10  ;add a newline after the pet
+    add r10, 1          ;increment pointer by 1
+
+    ;amount of bytes 40(bytes per pet) * amount pets + 1 for 0 in the end + 40 for new pet
+    ;to get 40 * amount we can do 32 * amount + 8 * amount
+    mov r8, 41           ;setup r8 to hold amount of bytes to read
+    mov rax, r11        ;amount of pets
+    shl rax, 3          ;shift rax left by 3
+    add r8, rax
+    shl rax, 2          ;shift rax left by 2 => 3 + 2 = 5 (2^5 = 32)
+    add r8, rax
+
+    mov r9, 40          ;byte amount per pet
+    mul r9              ;multiply by 40
+
+    ;open the file to save the pet
+    mov rax, 0x2000005            ;code to open
+    lea rdi, [rel state_file]   ;file path
+    mov rsi, 1                  ;read from file
+    mov rdx, 0
+    syscall
+
+    mov r9, rax                 ;save the file descriptor
+
+    ;write the new pet to the file
+    mov rax, 0x2000004          ;syscall write
+    mov rdi, r9                 ;file descriptor
+    lea rsi, [rel pet_status]                ;start of pet buffer
+    mov rdx, r8                 ;length of pets
+    syscall
+
+
+    add r10, 40                 ;reset pointer to end
+
+    ;close the file
+    mov rax, 0x2000006          ;syscall close
+    mov rdi, r9                 ;file descriptor
+    syscall
+
+    ;increase pet count by 1
+    add r11, 1
+
     jmp action_selection
 
+pad_name_input:
+    ;find newline and from there pad with spaces
+    mov cl, 20     ;counter for 20 bytes
+    lea r9, [rel pet_name_input]    ;starting address for the name input
+
+pad_name_loop:
+    cmp byte[r9], 10        ;check for newline
+    je pad                  ;if found start padding
+
+    add r9, 1               ;increase pointer
+    add cl, -1              ;decreasse counter
+    cmp cl, 0               ;if counter done break
+    je name_done            ;break if name is 20 char
+
+    jmp pad_name_loop       ;go to the next char
+
+pad:
+    ;pad until the end
+    mov byte [r9], 32    ;save a space
+    add r9, 1       ;increase pointer
+    add cl, -1      ;decrease counter
+
+    cmp cl, 0       ;check if all 20 bytes done
+    je name_done    ;if all padded go back
+
+    jmp pad         ;go to the next char
+
+name_done:
+    ret
+
+bad_type:
+    ;prompt message
+    mov rax, 0x2000004          ; syscall number for write
+    mov rdi, 1                  ; file descriptor 1 is stdout
+    lea rsi, [rel bad_type_selection]      ; address of the string to output
+    mov rdx, 40                 ; length
+    syscall
+
+    ;go back to selection
+    jmp type_prompt
 
 
 max_pets_reached:
@@ -300,12 +447,14 @@ section .data
     max_pets: db "Really sorry but your farm only supports 100 pets, if you're ready to pay 10'000 swiss francs we can talk about it", 10 ;length 115
 
     ;pet creation prompts
-    pet_type: db "What would you like your new pet to be?",10,"Please enter the number",10,"(1) Cat",10,"(2) Dog",10,"(3) Rat",10,"(4) Bird",10,"(5) Snake", 10 ;length 107
+    pet_type: db "What would you like your new pet to be?",10,"Please enter the number",10,"(1) Cat",10,"(2) Dog",10,"(3) Rat",10,"(4) Bird",10,"(5) Snake",10,"(6) Return",10 ;length 118
+    bad_type_selection: db "You need to enter a number between 1-6", 10, 10 ;lenght 40
+    pet_name_prompt: db "Please enter a name for your pet, maximum of 20 characters (rest will be cut)", 10 ;length 78
 
 
 section .bss
     user_selection: resb 2
     pet_status: resb 4001
     pet_names: resb 2501
+    pet_name_input: resb 20
 
-    ascii: resb 3
