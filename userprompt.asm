@@ -16,7 +16,7 @@ _user_prompt:
 
     call action_selection
 
-    mov rax, r11
+    mov rax, r9
     ret
 
 ;################################# Action Selection #################################
@@ -33,7 +33,7 @@ action_selection:
     mov rax, 0x2000003          ;syscall for read
     mov rdi, 0                  ;stdin
     lea rsi, [rel user_selection]        ;address of input
-    mov rdx, 2                 ;2 bytes to read
+    mov rdx, 100                 ;2 bytes to read but read 100 to prevent overflow
     syscall
 
     mov r9b, [rel user_selection]
@@ -42,6 +42,7 @@ action_selection:
     je list_pets
 
     cmp r9b, 50         ;check for ascii 2
+    je select_pet
 
     cmp r9b, 51         ;check for ascii 3
     je create_new_pet
@@ -50,6 +51,186 @@ action_selection:
     je end
 
     jmp bad_selection
+
+;################################# Display Pet Status #################################
+
+display_pet:
+    ;pet pointed to by r9
+    ;print out the status information for the pet
+
+    lea r8, [rel pet_display]   ;pointer to buffer for adding info
+    add r9, 3                   ;move pointer by 3 to get type
+
+    xor rax, rax                ;clear rax
+    mov al, [r9]                ;get the pet type
+    add r9, 1                   ;move pointer by 1
+
+    mov rdx, [r9]               ;get first 8 bytes of the name
+    mov [r8], rdx               ;save first 8 bytes of the name
+
+    add r9, 8                   ;move pointer
+    add r8, 8                   ;move pointer
+
+    mov rdx, [r9]               ;get first 8 bytes of the name
+    mov [r8], rdx               ;save first 8 bytes of the name
+
+    add r9, 8                   ;move pointer
+    add r8, 8                   ;move pointer
+
+    mov edx, [r9]               ;get last 4 bytes of the name
+    mov [r8], edx               ;save last 4 bytes
+
+    add r9, 4                   ;move pointer
+    add r8, 4                   ;move pointer
+
+    ;call string_type
+
+    mov rax, 0x2000004
+    mov rdi, 1
+    lea rsi, [rel pet_display]
+    mov rdx, 28
+    syscall
+
+    ;TODO: adapt this when done
+    jmp action_selection
+
+
+string_type:
+    ;get the string for the type since they're next to each other and 8 bytes long we can offset based on the number
+    ;multiply rax with pet type by 8 to get the byte offset
+    mov rdx, 8
+    mul rdx
+
+    lea rdx, [rel dead]             ;get initial address
+    add rdx, rax                    ;add the offset
+
+    mov rcx, [rdx]                  ;move the pet type into rax (8 bytes)
+    mov [r8], rcx                   ;save pet type into buffer
+    add r8, 8                       ;increase pointer
+
+    ret
+
+;################################# Select a Pet and give new Actions #################################
+
+select_pet:
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel pet_id_selection] ;starting address of buffer
+    mov rdx, 47             ;length
+    syscall
+
+    ;take user input
+    mov rax, 0x2000003      ;syscall read
+    mov rdi, 0              ;stdin
+    lea rsi, [rel user_selection] ;starting address of buffer
+    mov rdx, 100             ;length
+    syscall
+
+
+    ;setup address for conversion
+    mov r8, rsi
+    call convert_ascii_to_int
+
+    ;return for 0
+    cmp r9, 0
+    je action_selection
+
+    ;if number higher than 100 give message that id is bad
+    cmp r9, 100
+    jg bad_id_selection
+
+    ;check if an index larger than amount of existing pets is accessed
+    cmp r9, r11
+    jg pet_not_exist
+
+    ;calculate the position of the pet in memory
+    mov rax, r9         ;number of pet
+    add rax, -1         ;go one back => pets before the pet
+    mov rdx, 40         ;40 bytes per pet
+
+    mul rdx             ;get total byte count
+
+
+    lea r9, [rel pet_status]        ;load initial address of pet status
+    add r9, rax                      ;add the offset to get to start of the pet
+
+    mov rsi, r9                   ; address of the string to output
+    mov rax, 0x2000004          ; syscall number for write
+    mov rdi, 1                  ; file descriptor 1 is stdout
+    mov rdx, 40                 ; length
+    syscall
+
+    lea rsi, [rel user_input_prompt]      ; address of the string to output
+    mov rax, 0x2000004          ; syscall number for write
+    mov rdi, 1                  ; file descriptor 1 is stdout
+    mov rdx, 37                 ; length
+    syscall
+
+    call display_pet
+
+
+convert_ascii_to_int:
+    ;take up to 3 ascii characters from memory starting at address r8
+    ;calculate the int value and save it into r9
+    mov rax, 0       ;setup rax
+    mov rcx, 3       ;setup counter
+    xor rdx, rdx     ;0 out rdx
+
+int_convert_loop:
+    mov dl, [r8]        ;take the first byte
+
+    ;if newline is hit terminate early
+    cmp dl, 10
+    je convert_done
+
+    ;save the rdx register so it does not get lost because of the multiplication
+    push rdx
+    ;multiply previous value by 10 and get the next ascii
+    mov rsi, 10
+    mul rsi          ;multiply rax by 10
+    pop rdx   ;get the rdx register value back
+
+    ;check if dl lower than 0 in ascii
+    cmp dl, 48
+    jl bad_id_selection
+    ;check if dl higher than 9 in ascii
+    cmp dl, 57
+    jg bad_id_selection
+
+    add dl, -48          ;subtract ascii to get int value
+    add rax, rdx          ;add the int value to rax
+
+    ;if counter hits 0 conversion is done
+    add rcx, -1         ;decrement counter
+    cmp rcx, 0
+    je convert_done
+
+    add r8, 1        ;move to the next byte
+    jmp int_convert_loop    ;continue loop
+
+bad_id_selection:
+
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel bad_id]   ;start buffer message
+    mov rdx, 40             ;length
+    syscall
+
+    jmp select_pet
+
+pet_not_exist:
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel non_existing_id]   ;start buffer message
+    mov rdx, 107             ;length
+    syscall
+
+    jmp select_pet
+
+convert_done:
+    ;save the calculated value to r9
+    mov r9, rax
+    ret
 
 ;################################# create a new pet #################################
 create_new_pet:
@@ -72,7 +253,7 @@ type_prompt:
     mov rax, 0x2000003          ;syscall for read
     mov rdi, 0                  ;stdin
     lea rsi, [rel user_selection]        ;address of input
-    mov rdx, 2                 ;2 bytes to read
+    mov rdx, 100                 ;2 bytes to read
     syscall
 
     mov al, byte [rel user_selection]   ;take user selection into memory
@@ -110,8 +291,8 @@ name_prompt:
     ;get user input
     mov rax, 0x2000003          ;syscall for read
     mov rdi, 0                  ;stdin
-    lea rsi, [rel pet_name_input]        ;address of input
-    mov rdx, 20                 ;2 bytes to read
+    lea rsi, [rel user_selection]        ;address of input
+    mov rdx, 100                 ;2 bytes to read
     syscall
 
     ;pad the name in the end with spaces
@@ -193,7 +374,7 @@ save_pet:
 pad_name_input:
     ;find newline and from there pad with spaces
     mov cl, 20     ;counter for 20 bytes
-    lea r9, [rel pet_name_input]    ;starting address for the name input
+    lea r9, [rel user_selection]    ;starting address for the name input
 
 pad_name_loop:
     cmp byte[r9], 10        ;check for newline
@@ -453,10 +634,26 @@ section .data
     bad_type_selection: db "You need to enter a number between 1-6", 10, 10 ;lenght 40
     pet_name_prompt: db "Please enter a name for your pet, maximum of 20 characters (rest will be cut)", 10 ;length 78
 
+    ;pet selection prompts
+    pet_id_selection: db "Please enter the id of your pet: (0) to return", 10 ;lenght 47
+    bad_id: db "ID of your pet has to be in range 1-100", 10 ;length 40
+    non_existing_id: db "You don't have a pet with the ID you're trying to access, try listing your pets to see which are available", 10 ;length 107
+
+    ;pet types all padded to length 8
+    dead: db " (Dead) "
+    cat: db " (Cat)  "
+    dog: db " (Dog)  "
+    rat: db " (Rat)  "
+    bird: db " (Bird) "
+    snake: db " (Snake)"
 
 section .bss
-    user_selection: resb 2
     pet_status: resb 4001
     pet_names: resb 2501
-    pet_name_input: resb 20
+
+    ;user inputs
+    user_selection: resb 100
+
+    ;display pet
+    pet_display: resb 190
 
