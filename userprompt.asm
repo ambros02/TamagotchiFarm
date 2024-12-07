@@ -38,13 +38,15 @@ action_selection:
 
     mov r9b, [rel user_selection]
 
-    cmp r9b, 49
+    cmp r9b, 49         ;check for ascii 1
     je list_pets
 
-    cmp r9b, 51
+    cmp r9b, 50         ;check for ascii 2
+
+    cmp r9b, 51         ;check for ascii 3
     je create_new_pet
 
-    cmp r9b, 52
+    cmp r9b, 52         ;check for ascii 4
     je end
 
     jmp bad_selection
@@ -57,13 +59,6 @@ create_new_pet:
 
     ;get pointer to the end of pet status into r10
     call move_last_pet
-
-    ;save the pet ID first
-    mov r9, r11
-    add r9, 1
-    mov r8, r10
-
-    call convert_ascii
 
 type_prompt:
     ;prompt for pet type
@@ -90,6 +85,13 @@ type_prompt:
     cmp al, 54                      ;ascii for 6
     jg bad_type                     ;too high give message
     je action_selection             ;if value is 6 return to actions
+
+    ;save the pet ID first
+    mov r9, r11
+    add r9, 1
+    mov r8, r10
+
+    call convert_ascii
 
     mov byte [r8], al               ;save the user selection into memory
     add r8, 1                       ;move pointer by 1
