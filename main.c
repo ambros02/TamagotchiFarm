@@ -11,7 +11,7 @@ typedef struct{
 
 // Declare the NASM function that makes the system call
 extern UserInput take_user_input();
-extern int user_prompt();
+extern int user_prompt(int seconds_passed);
 
 
 int passedTime(){
@@ -52,11 +52,13 @@ int main() {
     //get the time difference
     int difference = passedTime();
 
+    UserInput c = take_user_input();
 
-    //TODO update animal status
+    printf("update_ticks %d\n", difference);
+    fflush(stdout);
 
-
-    int amount_pets = user_prompt();
+    //pass amount of seconds passed since last open
+    int amount_pets = user_prompt(difference);
 
     const char *file_path = "gamestate.txt";
     off_t new_size = amount_pets * 40 + 1;

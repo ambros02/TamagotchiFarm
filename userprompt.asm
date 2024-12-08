@@ -3,6 +3,13 @@ global _user_prompt  ; Make the function available for C to call
 
 _user_prompt:
 
+    ;amount of secconds passed in rdi
+    ;divide by 64 => approximately get minutes passed, divide by 32 => approximately half hours passed
+    ;2^6 & 2^5 => 64 and 32 respectively 5 + 6 = 11
+    shr rdi, 11
+    push rdi                    ;save the amount of ticks for later
+
+
     ;initial user message
     mov rax, 0x2000004          ; syscall number for write
     mov rdi, 1                  ; file descriptor 1 is stdout
@@ -12,12 +19,87 @@ _user_prompt:
 
     call read_status            ;get pet info from file and save the count of pets into r11
 
+    ;update pet stats
+    pop rdi                     ;amount of ticks
+    call time_update
+
+    ;load the names of the pets into names_pets
+    call names_pets
+
+    ;TODO: check if can be removed should be tbh
     call move_last_pet          ;move pointer to the last part
 
     call action_selection
 
     mov rax, r11
     ret
+
+
+;################################# Time Updates #################################
+time_update:
+    push r12                ;save initial r12
+    push r13                ;save initial r13 value
+    push r14                ;save initial r14 value
+
+    mov r13, rdi            ;save the tick amount
+    lea r9, [rel pet_status]    ;load pointer to first pet
+    mov r14, 0              ;counter for pets
+
+
+food_update:
+    mov r12, 0              ;offset for food
+    mov rcx, 2              ;add 2 per tick
+    call update
+
+water_update:
+    mov r12, 3              ;offset for water
+    mov rcx, 4              ;add 4 per tick
+    call update
+
+sleep_update:
+    mov r12, 6              ;offset for sleep
+    mov rcx, 1              ;add 1 per tick
+    call update
+
+love_update:
+    mov r12, 9               ;offset for love
+    mov rcx, -1              ;sub 1 per tick
+    call update
+
+toilet_update:
+    mov r12, 12             ;offset for toilet
+    mov rcx, 1              ;add 1 per tick
+    call update
+
+
+loop_update:
+    add r9, 40              ;move to the next pet
+    add r14, 1              ;increase counter
+    cmp r14, r11            ;check if all pets are updated
+    je update_done          ;if all done finish the update
+    jmp food_update         ;if some still have to be done go to next
+
+update:
+    ;set the amount to update in rcx, set the offset in r12
+    mov rax, r13            ;get tick into rax to multiply
+    ;don't need to 0 out rdx since overflow will not happen
+    mul rcx                 ;multiply
+
+    mov r10, rax            ;add the amount to update
+    call add_stats          ;add the stats
+
+    ret
+
+
+
+update_done:
+    ;restore original values
+    pop r12
+    pop r13
+    pop r14
+
+    ret
+
 
 ;################################# Action Selection #################################
 ;create, select, list pets
@@ -285,8 +367,6 @@ continue_stats:
     sub r9, r12                                 ;reset extra stat offset
     ret
 
-
-
 go_back:
     jmp action_selection
 
@@ -313,6 +393,7 @@ dead_pet:
     jmp bad_dead_input
 
 remove_pet:
+    ;TODO: add confirmation message
     ;remove the pet pointed to by r9
     ;concatenate the other pets together in memory and update their IDs
 
@@ -372,11 +453,14 @@ loop_id_update:
 
     jmp action_selection
 
-
-
-
 bad_dead_input:
-    ;TODO: implement error message
+    ;message for bad selection
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel dead_pet_bad_input]   ;start of buffer
+    mov rdx, 86
+    syscall
+
     jmp dead_pet
 
 ;################################# Display Pet Status #################################
@@ -911,9 +995,6 @@ read_status:
     mov rdi, r10
     syscall
 
-    ;load the names of the pets into names_pets
-    call names_pets
-
     ;return to the calling function
     ret
 
@@ -1073,6 +1154,7 @@ section .data
     ;selected pet actions
     selected_prompt: db "What would you like to do with your pet?",10,"(1) Feed",10,"(2) Water",10,"(3) Play",10,"(4) Pet",10,"(5) Put to bed",10,"(6) Walk",10,"(7) Potty",10,"(8) Dispose",10,"(9) Display status",10,"(0) Return",10 ;length 153
     dead_pet_dispose: db "Unfortunately your pet has died do you want to dispose of it?",10,"(1) Dispose",10,"(2) Keep",10 ;length 83
+    dead_pet_bad_input: db "You need to either dispose of the dead pet or keep it (but that would be kinda cruel)", 10 ;length 86
 
     ;pet types all padded to length 8
     dead: db " (Dead) "
