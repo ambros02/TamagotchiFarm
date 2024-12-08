@@ -6,7 +6,7 @@ _user_prompt:
     ;amount of secconds passed in rdi
     ;divide by 64 => approximately get minutes passed, divide by 32 => approximately half hours passed
     ;2^6 & 2^5 => 64 and 32 respectively 5 + 6 = 11
-    shr rdi, 11
+    shr rdi, 11                 ;divide the seconds to get the tick amount
     push rdi                    ;save the amount of ticks for later
 
 
@@ -25,9 +25,6 @@ _user_prompt:
 
     ;load the names of the pets into names_pets
     call names_pets
-
-    ;TODO: check if can be removed should be tbh
-    call move_last_pet          ;move pointer to the last part
 
     call action_selection
 
@@ -48,27 +45,27 @@ time_update:
 
 food_update:
     mov r12, 0              ;offset for food
-    mov rcx, 2              ;add 2 per tick
+    mov rcx, 6              ;add 2 per tick
     call update
 
 water_update:
     mov r12, 3              ;offset for water
-    mov rcx, 4              ;add 4 per tick
+    mov rcx, 8              ;add 4 per tick
     call update
 
 sleep_update:
     mov r12, 6              ;offset for sleep
-    mov rcx, 1              ;add 1 per tick
+    mov rcx, 4              ;add 1 per tick
     call update
 
 love_update:
     mov r12, 9               ;offset for love
-    mov rcx, -1              ;sub 1 per tick
+    mov rcx, -2              ;sub 1 per tick
     call update
 
 toilet_update:
     mov r12, 12             ;offset for toilet
-    mov rcx, 1              ;add 1 per tick
+    mov rcx, 5              ;add 1 per tick
     call update
 
 
@@ -193,7 +190,7 @@ feed:
     push r12
 
     ;food
-    mov r10, -30
+    mov r10, -50
     mov r12, 0
     call add_stats
 
@@ -202,9 +199,9 @@ feed:
     mov r12, 9
     call add_stats
 
-    ;tired
-    mov r10, 7
-    mov r12, 12
+    ;tired #food coma
+    mov r10, 8
+    mov r12, 6
     call add_stats
 
     pop r12
@@ -214,7 +211,7 @@ water:
     push r12
 
     ;water
-    mov r10, -20
+    mov r10, -80
     mov r12, 3
     call add_stats
 
@@ -224,7 +221,7 @@ water:
     call add_stats
 
     ;toilet
-    mov r10, 10
+    mov r10, 20
     mov r12, 12
     call add_stats
 
@@ -245,12 +242,12 @@ play:
     call add_stats
 
     ;toilet
-    mov r10, 6
+    mov r10, 8
     mov r12, 12
     call add_stats
 
     ;hunger
-    mov r10, 12
+    mov r10, 20
     mov r12, 0
     call add_stats
 
@@ -261,7 +258,7 @@ pet:
     push r12
 
     ;love
-    mov r10, 6
+    mov r10, 5
     mov r12, 9
     call add_stats
 
@@ -272,22 +269,22 @@ bed:
     push r12
 
     ;sleep
-    mov r10, -80
+    mov r10, -150
     mov r12, 6
     call add_stats
 
     ;toilet
-    mov r10, 25
+    mov r10, 50
     mov r12, 12
     call add_stats
 
     ;hunger
-    mov r10, 20
+    mov r10, 45
     mov r12, 0
     call add_stats
 
     ;thirst
-    mov r10, 40
+    mov r10, 90
     mov r12, 3
     call add_stats
 
@@ -303,22 +300,22 @@ walk:
     call add_stats
 
     ;thirst
-    mov r10, 15
+    mov r10, 30
     mov r12, 3
     call add_stats
 
     ;hunger
-    mov r10, 10
+    mov r10, 24
     mov r12, 0
     call add_stats
 
     ;toilet
-    mov r10, -20
+    mov r10, -34
     mov r12, 12
     call add_stats
 
     ;tired
-    mov r10, 20
+    mov r10, 37
     mov r12, 6
     call add_stats
 
@@ -329,7 +326,7 @@ potty:
     push r12
 
     ;toilet
-    mov r10, -100
+    mov r10, -200
     mov r12, 12
     call add_stats
 
@@ -346,15 +343,32 @@ add_stats:
 
     add rax, r10                                ;add stat
     ;make sure doesn't go below 0
+check_death:
+    cmp r12, 9          ;only for love check if too much below 0
+    je love_check
+
+needs_check:
+    cmp rax, 280            ;stats can't go to 280 or above or pet dies
+    jl check_bot_stats      ;if below 280 continue the update
+    call pet_dies           ;if 280 or above die
+    jmp check_bot_stats     ;continue the update
+
+love_check:
+    ;love can't go to -50 or below
+    cmp rax, -50
+    jg check_bot_stats      ;if above -50 pet survives
+    call pet_dies           ;if -50 or below dies
+    jmp check_bot_stats     ;continue the update
+
 check_bot_stats:
     cmp rax, 0
     jge check_top_stats
     xor rax, rax                                ;if rax goes below 0 make it 0
 
 check_top_stats:
-    cmp rax, 100
+    cmp rax, 200
     jle continue_stats
-    mov rax, 100                                ;if rax goes above 100 make it 100
+    mov rax, 200                                ;if rax goes above 200 make it 200
 
 continue_stats:
     mov r8, r9                                  ;move pointer to r8 for function call
@@ -366,6 +380,18 @@ continue_stats:
     sub r9, 27                                  ;reset pointer to start of pet
     sub r9, r12                                 ;reset extra stat offset
     ret
+
+pet_dies:
+    sub r9, r12                                 ;go back by the offset
+    sub r9, 21                                  ;go to type position (start + 3)
+
+    mov byte [r9], 48                             ;set type to dead
+
+    add r9, r12                                 ;go front by offset
+    add r9, 21                                  ;move back to original position
+
+    ret                                         ;go back and continue the upate
+
 
 go_back:
     jmp action_selection
@@ -531,7 +557,7 @@ loop_needs:
 
 loop_display:
     ;idea show up to 20 # to show a filled bar 0 => (0-4), 20 => 100
-    sub rax, 5         ;decrease need by 5
+    sub rax, 10         ;decrease need by 10
 
     cmp rax, 0          ;if need is below 0 pad the rest
     jl pad_display

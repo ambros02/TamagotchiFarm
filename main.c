@@ -52,11 +52,6 @@ int main() {
     //get the time difference
     int difference = passedTime();
 
-    UserInput c = take_user_input();
-
-    printf("update_ticks %d\n", difference);
-    fflush(stdout);
-
     //pass amount of seconds passed since last open
     int amount_pets = user_prompt(difference);
 
@@ -68,8 +63,6 @@ int main() {
         perror("Error truncating file");
         return 1;
     }
-
-    printf("amount pets: %d\n", amount_pets);
 
     return 0;
 }
