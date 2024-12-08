@@ -16,7 +16,7 @@ _user_prompt:
 
     call action_selection
 
-    mov rax, r9
+    mov rax, r11
     ret
 
 ;################################# Action Selection #################################
@@ -52,6 +52,152 @@ action_selection:
 
     jmp bad_selection
 
+;################################# Actions when Pet is selected #################################
+
+selected_actions:
+
+    mov r8b, [r9 + 3]   ;load the pet status
+    cmp r8b, 48         ;check if pet is dead
+    je dead_pet
+
+    mov rax, 0x2000004  ;syscall write
+    mov rdi, 1          ;stdout
+    lea rsi, [rel selected_prompt]  ;start of buffer
+    mov rdx, 150        ;length
+    syscall
+
+    mov rax, 0x2000003  ;syscall read
+    mov rdi, 0          ;stdin
+    lea rsi, [rel user_selection]   ;start of buffer
+    mov rdx, 100        ;length
+    syscall
+
+    mov al, byte [rel user_selection]   ;take user selection into memory
+
+    cmp al, 49
+    je feed
+
+    cmp al, 57
+    je display_pet
+
+    cmp al, 48
+    je go_back
+
+feed:
+    add r9, 24                                  ;move to food
+    call convert_ascii_to_int_no_checks         ;get into from food into rax
+    sub r9, 3                                   ;reset to food
+
+    sub rax, 20                                 ;minus 20 food
+    ;make sure doesn't go below 0
+    cmp rax, 0
+    jge continue_feed
+    xor rax, rax                                ;if rax goes below 0 make it 0
+
+continue_feed:
+
+    mov r8, r9                                  ;move pointer to r8 for function call
+    mov r9, rax                                 ;move value to r9 to save it
+    call convert_ascii
+
+    mov r9, r8                                  ;move back the pointer to pet to r9
+
+    sub r9, 27                                  ;reset pointer to start of pet
+    jmp selected_actions
+
+
+go_back:
+    jmp action_selection
+
+dead_pet:
+    mov rax, 0x2000004      ;syscall for write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel dead_pet_dispose] ;buffer
+    mov rdx, 83             ;length
+    syscall
+
+    mov rax, 0x2000003      ;syscall read
+    mov rdi, 0              ;stdin
+    lea rsi, [rel user_selection]   ;start of buffer
+    mov rdx, 100            ;length
+    syscall
+
+    mov r8b, [rsi]          ;save the first input
+    cmp r8b, 49             ;check for 1
+    je remove_pet     ;jump back to action selection
+
+    cmp r8b, 50             ;check for 2
+    je action_selection           ;delete the pet
+
+    jmp bad_dead_input
+
+remove_pet:
+    ;remove the pet pointed to by r9
+    ;concatenate the other pets together in memory and update their IDs
+
+    mov rax, 0x2000004
+    mov rsi, 1
+    lea rdi, [rel pet_status]
+    mov rdx, 1000
+    syscall
+
+    ;get the pet ID
+    call convert_ascii_to_int_no_checks
+    sub r9, 3           ;reset pointer to start of pet
+
+    mov rcx, r11        ;total amount of pets
+    sub rcx, rax        ;amount of pets after this
+
+    mov rax, rcx        ;move back for addition
+    xor rdx, rdx        ;0 out rdx for multiplication
+    mov rcx, 5          ;mulitplier
+    mul rcx             ;multiply rax by 5 to get amount of quadwords to shift
+
+    mov rcx, rax        ;amount of quadwords to shift
+
+    mov rdi, r9         ;destination address
+    mov rsi, r9
+    add rsi, 40         ;source address
+    rep movsq           ;shift the amount of rcx quadwords from rsi to rdi
+
+    mov byte [rdi], 0        ;terminate with 0 byte
+
+    xor rax, rax
+
+    add rdi, 1          ;increment pointer
+    mov rcx, 5          ;5 * 8 = 40
+    rep stosq           ;zero out the bytes
+
+    ;0 out the pet names
+    lea rdi, [rel pet_names]    ;load address for pet names
+    mov rcx, 625                ;4 * 625 = 2500
+    rep stosd
+
+
+    ;setup for ID update
+    mov r9, 1          ;init counter to update indices
+    lea r8, [rel pet_status]    ;starting address of pet status to save new ID
+
+loop_id_update:
+    call convert_ascii
+
+    add r9, 1       ;increment count
+    add r8, 37      ;move to the starting point of next pet
+
+    cmp r9, r11
+    jl loop_id_update
+
+    sub r11, 1          ;one less pet
+
+    jmp action_selection
+
+
+
+
+bad_dead_input:
+    ;TODO: implement error message
+    jmp dead_pet
+
 ;################################# Display Pet Status #################################
 
 display_pet:
@@ -63,7 +209,7 @@ display_pet:
 
     xor rax, rax                ;clear rax
     mov al, [r9]                ;get the pet type
-    add al, -48                 ;go from ascii to int
+    sub al, 48                  ;go from ascii to int
     add r9, 1                   ;move pointer by 1
 
     mov rdx, [r9]               ;get first 8 bytes of the name
@@ -88,14 +234,17 @@ display_pet:
 
     call pet_needs              ;get the needs of the pet (r8 is already in position)
 
-    mov rax, 0x2000004
-    mov rdi, 1
-    lea rsi, [rel pet_display]
-    mov rdx, 184
+    ;display pet information
+    mov rax, 0x2000004          ;write syscall
+    mov rdi, 1                  ;stdout
+    lea rsi, [rel pet_display]  ;information
+    mov rdx, 184                ;length
     syscall
 
+    sub r9, 39                 ;reset counter to the pet
+
     ;TODO: adapt this when done
-    jmp action_selection
+    jmp selected_actions
 
 pet_needs:
     ;add the needs of the pet to the memory buffer to display it to the user
@@ -118,14 +267,14 @@ loop_needs:
 
 loop_display:
     ;idea show up to 20 # to show a filled bar 0 => (0-4), 20 => 100
-    add rax, -5         ;decrease need by 5
+    sub rax, 5         ;decrease need by 5
 
     cmp rax, 0          ;if need is below 0 pad the rest
     jl pad_display
 
     mov byte [r8], 35   ;add a #
     add r8, 1           ;increase pointer
-    add rcx, -1         ;decrease counter
+    sub rcx, 1         ;decrease counter
 
     jmp loop_display    ;loop again
 
@@ -138,7 +287,7 @@ pad_display:
 
     mov byte [r8], 32   ;add a space
     add r8, 1           ;increase pointer
-    add rcx, -1         ;decrease counter
+    sub rcx, 1         ;decrease counter
 
     jmp pad_display
 
@@ -147,7 +296,7 @@ display_done:
     add r8, 2                ;increment pointer
     add rdi, 8          ;go to the next need text
     ;note r8 updates automatically from the function
-    add r12, -1         ;decrement overall counter
+    sub r12, 1         ;decrement overall counter
     cmp r12, 0
     je needs_done       ;if all needs are in memory return
 
@@ -212,7 +361,7 @@ select_pet:
 
     ;calculate the position of the pet in memory
     mov rax, r9         ;number of pet
-    add rax, -1         ;go one back => pets before the pet
+    sub rax, 1         ;go one back => pets before the pet
     mov rdx, 40         ;40 bytes per pet
 
     mul rdx             ;get total byte count
@@ -251,7 +400,7 @@ pet_not_exist:
 
 ;################################# Convert 3 ASCII to int #################################
 convert_ascii_to_int_no_checks:
-    ;take 3 ascii characters from memory starting at address r8 without checks
+    ;take 3 ascii characters from memory starting at address r9 without checks
     ;calculate the int value and save it into rax
     mov rax, 0       ;setup rax
     mov rcx, 3       ;setup counter
@@ -264,11 +413,11 @@ int_convert_loop_no_check:
     mov dl, [r9]     ;take the first byte
     add r9, 1        ;move to the next byte
 
-    add dl, -48          ;subtract ascii to get int value
+    sub dl, 48          ;subtract ascii to get int value
     add rax, rdx         ;add the int value to rax
 
     ;if counter hits 0 conversion is done
-    add rcx, -1         ;decrement counter
+    sub rcx, 1         ;decrement counter
     cmp rcx, 0
     je convert_done_no_check
 
@@ -306,11 +455,11 @@ int_convert_loop:
     cmp dl, 57
     jg bad_id_selection
 
-    add dl, -48          ;subtract ascii to get int value
+    sub dl, 48          ;subtract ascii to get int value
     add rax, rdx          ;add the int value to rax
 
     ;if counter hits 0 conversion is done
-    add rcx, -1         ;decrement counter
+    sub rcx, 1         ;decrement counter
     cmp rcx, 0
     je convert_done
 
@@ -362,7 +511,9 @@ type_prompt:
     add r9, 1
     mov r8, r10
 
-    call convert_ascii
+    push rax                        ;save rax to hold pet type
+    call convert_ascii              ;convert the input to ascii
+    pop rax                         ;get rax back
 
     mov byte [r8], al               ;save the user selection into memory
     add r8, 1                       ;move pointer by 1
@@ -409,7 +560,7 @@ fill_status:
 loop_fill:
     mov byte [r10], 48  ;save a 0 (ascii)
     add r10, 1          ;increment pointer by 1
-    add cl, -1          ;decrease counter
+    sub cl, 1          ;decrease counter
 
     cmp cl, 0
     je save_pet
@@ -432,30 +583,6 @@ save_pet:
     mov r9, 40          ;byte amount per pet
     mul r9              ;multiply by 40
 
-    ;open the file to save the pet
-    mov rax, 0x2000005            ;code to open
-    lea rdi, [rel state_file]   ;file path
-    mov rsi, 1                  ;read from file
-    mov rdx, 0
-    syscall
-
-    mov r9, rax                 ;save the file descriptor
-
-    ;write the new pet to the file
-    mov rax, 0x2000004          ;syscall write
-    mov rdi, r9                 ;file descriptor
-    lea rsi, [rel pet_status]                ;start of pet buffer
-    mov rdx, r8                 ;length of pets
-    syscall
-
-
-    add r10, 40                 ;reset pointer to end
-
-    ;close the file
-    mov rax, 0x2000006          ;syscall close
-    mov rdi, r9                 ;file descriptor
-    syscall
-
     ;increase pet count by 1
     add r11, 1
 
@@ -471,7 +598,7 @@ pad_name_loop:
     je pad                  ;if found start padding
 
     add r9, 1               ;increase pointer
-    add cl, -1              ;decreasse counter
+    sub cl, 1              ;decreasse counter
     cmp cl, 0               ;if counter done break
     je name_done            ;break if name is 20 char
 
@@ -481,7 +608,7 @@ pad:
     ;pad until the end
     mov byte [r9], 32    ;save a space
     add r9, 1       ;increase pointer
-    add cl, -1      ;decrease counter
+    sub cl, 1      ;decrease counter
 
     cmp cl, 0       ;check if all 20 bytes done
     je name_done    ;if all padded go back
@@ -529,7 +656,6 @@ bad_selection:
 
 
 list_pets:
-    ;load the names of the pets
     call names_pets
 
     ;pet info names
@@ -619,6 +745,7 @@ names_pets:
     lea r9, [rel pet_names]     ;pointer to pet names
 
 
+
 loop_names:
     cmp byte [r8], 0                 ;check if 0 terminator is hit
     je names_done
@@ -656,12 +783,47 @@ loop_names:
 
 names_done:
     mov byte[r9], 0             ;0 terminate the finished string
+
     ret
 
 ;################################# Exit the program #################################
 
 
 end:
+
+    mov rax, 0x2000005            ;code to open
+    lea rdi, [rel state_file]   ;file path
+    mov rsi, 2                  ;write to file
+    mov rdx, 0
+    syscall
+
+    ;save the file descriptor
+    mov r8, rax
+
+
+    mov rax, r11            ;amount of pets
+    mov rdx, 40             ;amount bytes per pet
+    mul rdx                 ;multiply rax by 40
+    add rax, 1              ;add 1 for the nul terminator
+
+    mov rdx, rax                ;length
+    mov rax, 0x2000004          ;syscall write
+    mov rdi, r8                 ;file descriptor
+    lea rsi, [rel pet_status]   ;start of the buffer
+    syscall
+
+    ;same system call as in testa.asm but different behavior somehow
+    ;mov rax, 0x20000C9          ;syscall ftruncate
+    ;mov rdi, r8                 ;file descriptor
+    ;mov rdx, 500
+    ;syscall
+
+    ;close the file
+    mov rax, 0x2000006
+    mov rdi, r8
+    syscall
+
+
     ;goodbye message
     mov rax, 0x2000004      ;syscall write
     mov rdi, 1              ;stdout
@@ -670,9 +832,8 @@ end:
     syscall
 
     ;exit the program
-    mov rax, 0x2000001  ;syscall for exit code
-    mov rdi, 0          ;exit code 0
-    syscall
+    mov rax, r11
+    ret
 
 
 ;################################# Convert Int Ascii #################################
@@ -728,6 +889,10 @@ section .data
     pet_id_selection: db "Please enter the id of your pet: (0) to return", 10 ;lenght 47
     bad_id: db "ID of your pet has to be in range 1-100", 10 ;length 40
     non_existing_id: db "You don't have a pet with the ID you're trying to access, try listing your pets to see which are available", 10 ;length 107
+
+    ;selected pet actions
+    selected_prompt: db "What would you like to do with your pet?",10,"(1) Feed",10,"(2) Water",10,"(3) Play",10,"(4) Pet",10,"(5) Put to bed",10,"(6) Walk",10,"(7) Potty",10,"(8) Bury",10,"(9) Display status",10,"(0) Return",10 ;length 150
+    dead_pet_dispose: db "Unfortunately your pet has died do you want to dispose of it?",10,"(1) Dispose",10,"(2) Keep",10 ;length 83
 
     ;pet types all padded to length 8
     dead: db " (Dead) "

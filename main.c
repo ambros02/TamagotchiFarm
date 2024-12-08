@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 typedef struct{
     char *input_ptr;
@@ -51,10 +52,20 @@ int main() {
     //get the time difference
     int difference = passedTime();
 
+
     //TODO update animal status
 
 
     int amount_pets = user_prompt();
+
+    const char *file_path = "gamestate.txt";
+    off_t new_size = amount_pets * 40 + 1;
+
+    // Truncate the file to the new size
+    if (truncate(file_path, new_size) == -1) {
+        perror("Error truncating file");
+        return 1;
+    }
 
     printf("amount pets: %d\n", amount_pets);
 
