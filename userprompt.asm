@@ -10,6 +10,12 @@ _user_prompt:
     push rdi                    ;save the amount of ticks for later
 
 
+    mov rax, 0x2000004          ; syscall number for write
+    mov rdi, 1                  ; file descriptor 1 is stdout
+    lea rsi, [rel ascii_intro]      ; address of the string to output
+    mov rdx, 633                 ; length
+    syscall
+
     ;initial user message
     mov rax, 0x2000004          ; syscall number for write
     mov rdi, 1                  ; file descriptor 1 is stdout
@@ -23,7 +29,7 @@ _user_prompt:
     pop rdi                     ;amount of ticks
     call time_update
 
-    ;load the names of the pets into names_pets
+    ;load the names of the pets into pet_names
     call names_pets
 
     call action_selection
@@ -37,6 +43,9 @@ time_update:
     push r12                ;save initial r12
     push r13                ;save initial r13 value
     push r14                ;save initial r14 value
+
+    cmp r11, 0              ;if no pets exist skip the update
+    je update_done
 
     mov r13, rdi            ;save the tick amount
     lea r9, [rel pet_status]    ;load pointer to first pet
@@ -175,13 +184,17 @@ selected_actions:
     je potty
 
     cmp al, 56
-    je remove_pet
+    je remove_pet_choice
 
     cmp al, 57
     je display_pet
 
     cmp al, 48
     je go_back
+
+    ;you could add an error message here but I don't think it's necesary
+    jmp selected_actions
+
 
 ;preserve the r12 register when using it
 ;add the amounts for stats
@@ -418,16 +431,90 @@ dead_pet:
 
     jmp bad_dead_input
 
+remove_pet_choice:
+    ;message to convince to keep
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel dont_kill_message]    ;start of buffer
+    mov rdx, 163            ;length
+    syscall
+
+    mov al, [r9 + 3]        ;get the type of pet to display message
+    cmp al, 49              ;cat
+    je cat_picture
+
+    cmp al, 50              ;dog
+    je dog_picture
+
+    cmp al, 51              ;rat
+    je rat_picture
+
+    cmp al, 52              ;bird
+    je bird_picture
+
+    cmp al, 53               ;snake
+    je snake_picture
+
+;display ascii arts
+cat_picture:
+    lea rsi, [rel ascii_cat]    ;start of buffer
+    mov rdx, 146            ;length
+    jmp print_picture
+
+dog_picture:
+    lea rsi, [rel ascii_dog]    ;start of buffer
+    mov rdx, 192            ;length
+    jmp print_picture
+
+rat_picture:
+    lea rsi, [rel ascii_rat]
+    mov rdx, 394
+    jmp print_picture
+
+bird_picture:
+    lea rsi, [rel ascii_bird]
+    mov rdx, 465
+    jmp print_picture
+
+snake_picture:
+    lea rsi, [rel ascii_snake]
+    mov rdx, 715
+    jmp print_picture
+
+
+print_picture:
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    syscall
+
+    jmp decide_remove
+
+decide_remove:
+    mov rax, 0x2000004      ;syscall write
+    mov rdi, 1              ;stdout
+    lea rsi, [rel decide_kill_message]    ;start of buffer
+    mov rdx, 101            ;length
+    syscall
+
+    mov rax, 0x2000003      ;syscall read
+    mov rdi, 0              ;stdin
+    lea rsi, [rel user_selection]    ;start of buffer
+    mov rdx, 100            ;length
+    syscall
+
+    mov al, [rel user_selection]    ;take first byte
+
+    cmp al, 49                      ;1 => dispose
+    je remove_pet
+
+    cmp al, 50                      ;2 => keep
+    jmp selected_actions
+
+    jmp decide_remove
+
 remove_pet:
-    ;TODO: add confirmation message
     ;remove the pet pointed to by r9
     ;concatenate the other pets together in memory and update their IDs
-
-    mov rax, 0x2000004
-    mov rsi, 1
-    lea rdi, [rel pet_status]
-    mov rdx, 1000
-    syscall
 
     ;get the pet ID
     call convert_ascii_to_int_no_checks
@@ -467,6 +554,9 @@ remove_pet:
     lea r8, [rel pet_status]    ;starting address of pet status to save new ID
 
 loop_id_update:
+    cmp r11, 1                  ;if it was the last pet don't give new ID's
+    je decrement_pet_amount
+
     call convert_ascii
 
     add r9, 1       ;increment count
@@ -475,6 +565,7 @@ loop_id_update:
     cmp r9, r11
     jl loop_id_update
 
+decrement_pet_amount:
     sub r11, 1          ;one less pet
 
     jmp action_selection
@@ -965,11 +1056,6 @@ list_pets:
     jmp action_selection
 
 
-;selection:
-    ;remove, feed, water, play, toilet, walk, put to bed
-
-
-
 ;################################# Move to last pet #################################
 ;saving last pointer in r10
 
@@ -1031,8 +1117,6 @@ names_pets:
     lea r8, [rel pet_status]    ;pointer to pet status data
     lea r9, [rel pet_names]     ;pointer to pet names
 
-
-
 loop_names:
     cmp byte [r8], 0                 ;check if 0 terminator is hit
     je names_done
@@ -1061,7 +1145,6 @@ loop_names:
     add r8, 4                   ;move 4 bytes
     add r9, 4                   ;move 4 bytes
 
-    add r9, 1                   ;go to the next byte
     mov byte [r9], 10           ;add the newline
     add r9, 1
 
@@ -1181,6 +1264,8 @@ section .data
     selected_prompt: db "What would you like to do with your pet?",10,"(1) Feed",10,"(2) Water",10,"(3) Play",10,"(4) Pet",10,"(5) Put to bed",10,"(6) Walk",10,"(7) Potty",10,"(8) Dispose",10,"(9) Display status",10,"(0) Return",10 ;length 153
     dead_pet_dispose: db "Unfortunately your pet has died do you want to dispose of it?",10,"(1) Dispose",10,"(2) Keep",10 ;length 83
     dead_pet_bad_input: db "You need to either dispose of the dead pet or keep it (but that would be kinda cruel)", 10 ;length 86
+    dont_kill_message: db "What kind of a human are you to dispose of your sweet pet?",10,"Don't you love me anymore? You created me after all. But sure go ahead but at least look me in the eye!",10 ;length 163
+    decide_kill_message: db "(1) Do you really want to kill such a cute pet?",10,"(2) Did you finally come to your senses and keep it?", 10 ;length 101
 
     ;pet types all padded to length 8
     dead: db " (Dead) "
@@ -1196,6 +1281,96 @@ section .data
     sleep: db "Sleep:  "
     love: db "Love:   "
     toilet: db "Toilet: "
+
+    ;ascii arts
+    ascii_cat:    db " ,_     _", 10
+                  db "|\\_,-~/", 10
+                  db "/ _  _ |    ,--.", 10
+                  db "(  @  @ )   / ,-'", 10
+                  db " \  _T_/-._( (", 10
+                  db "/         `. \", 10
+                  db "|         _  \ |", 10
+                  db "\ \ ,  /      |", 10
+                  db "|| |-_\__   /", 10
+                  db "((_/`(____,-'", 10
+                  db 0 ;length 146
+
+    ascii_dog:  db "     |\_/|                  ", 10
+                db "     | @ @   Woof! ", 10
+                db "     |   <>              _  ", 10
+                db "     |  _/\------____ ((| |))", 10
+                db "     |               `--' |   ", 10
+                db " ____|_       ___|   |___.' ", 10
+                db "/_/_____/____/_______|", 10
+                db 0 ;length 192
+
+    ascii_rat:  db '            _     _', 10
+                db '            \).-.(/', 10
+                db '             (O O) (', 10
+                db '             />@<\ )', 10
+                db '    ___ ____(\ _ /)__    _______', 10
+                db ' .-" _ "     ** **   "=-"  \\   \', 10
+                db '|   ( )     _           o   :.   .', 10
+                db '|    "     ( )     ()       ::   :', 10
+                db '|_          "          ..   ::   :', 10
+                db '  )              ()   (  )  :|   |', 10
+                db '|"    ()               ""   :|   |', 10
+                db '|   O        o .-.     _    :.   /', 10
+                db '\____.--._____(---)___(-)__//__dv', 10
+                db 0 ;length 394
+
+    ascii_bird: db "                           .", 10
+                db "                          | \/|", 10
+                db "  (\   _                  ) )|/|", 10
+                db "      (/            _----. /.'.'", 10
+                db ".-._________..      .' @ _\  .'", 10
+                db "'.._______.   '.   /    (_| .')", 10
+                db "  '._____.  /   '-/      | _.'", 10
+                db "   '.______ (         ) ) \", 10
+                db "     '..____ '._       )  )", 10
+                db "        .' __.--\  , ,  // ((", 10
+                db "        '.'  mrf|  \/   (_.'(", 10
+                db "                '   \ .'", 10
+                db "                 \   (", 10
+                db "                  \   '.", 10
+                db "                   \ \ '.)", 10
+                db "                    '-'-'", 10
+                db 0 ;length 465
+
+
+    ascii_snake:
+                    db "           /^\/^\", 10
+                    db "         _|__|  O|", 10
+                    db "\/     /~     \_/ \", 10
+                    db " \____|__________/  \", 10
+                    db "        \_______      \", 10
+                    db "                `\     \                 \", 10
+                    db "                  |     |                  \", 10
+                    db "                 /      /                    \", 10
+                    db "                /     /                       \\", 10
+                    db "              /      /                         \ \", 10
+                    db "             /     /                            \  \", 10
+                    db "           /     /             _----_            \   \", 10
+                    db "          /     /           _-~      ~-_         |   |", 10
+                    db "         (      (        _-~    _--_    ~-_     _/   |", 10
+                    db "          \      ~-____-~    _-~    ~-_    ~-_-~    /", 10
+                    db "            ~-_           _-~          ~-_       _-~", 10
+                    db "               ~--______-~                ~-___-~", 10
+                    db 0 ; length 715
+
+    ascii_intro:
+        db 10, 10
+        db "                      /^--^\     /^--^\     /^--^\", 10
+        db "                      \____/     \____/     \____/", 10
+        db "                     /      \   /      \   /      \", 10
+        db "KAT                 |        | |        | |        |", 10
+        db "                     \__  __/   \__  __/   \__  __/", 10
+        db "|^|^|^|^|^|^|^|^|^|^|^|^\ \^|^|^|^/ /^|^|^|^|^\ \^|^|^|^|^|^|^|^|^|^|^|^|", 10
+        db "| | | | | | | | | | | | |\ \| | |/ /| | | | | | \ \ | | | | | | | | | | |", 10
+        db "########################/ /######\ \###########/ /#######################", 10
+        db "| | | | | | | | | | | | \/| | | | \/| | | | | |\/ | | | | | | | | | | | |", 10
+        db "|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|_|", 10
+        db 10,0 ;length 633
 
 section .bss
     pet_status: resb 4001
