@@ -63,7 +63,7 @@ selected_actions:
     mov rax, 0x2000004  ;syscall write
     mov rdi, 1          ;stdout
     lea rsi, [rel selected_prompt]  ;start of buffer
-    mov rdx, 150        ;length
+    mov rdx, 153        ;length
     syscall
 
     mov rax, 0x2000003  ;syscall read
@@ -77,25 +77,204 @@ selected_actions:
     cmp al, 49
     je feed
 
+    cmp al, 50
+    je water
+
+    cmp al, 51
+    je play
+
+    cmp al, 52
+    je pet
+
+    cmp al, 53
+    je bed
+
+    cmp al, 54
+    je walk
+
+    cmp al, 55
+    je potty
+
+    cmp al, 56
+    je remove_pet
+
     cmp al, 57
     je display_pet
 
     cmp al, 48
     je go_back
 
-feed:
-    add r9, 24                                  ;move to food
-    call convert_ascii_to_int_no_checks         ;get into from food into rax
-    sub r9, 3                                   ;reset to food
+;preserve the r12 register when using it
+;add the amounts for stats
 
-    sub rax, 20                                 ;minus 20 food
+feed:
+    push r12
+
+    ;food
+    mov r10, -30
+    mov r12, 0
+    call add_stats
+
+    ;love
+    mov r10, 3
+    mov r12, 9
+    call add_stats
+
+    ;tired
+    mov r10, 7
+    mov r12, 12
+    call add_stats
+
+    pop r12
+    jmp selected_actions
+
+water:
+    push r12
+
+    ;water
+    mov r10, -20
+    mov r12, 3
+    call add_stats
+
+    ;love
+    mov r10, 2
+    mov r12, 9
+    call add_stats
+
+    ;toilet
+    mov r10, 10
+    mov r12, 12
+    call add_stats
+
+    pop r12
+    jmp selected_actions
+
+play:
+    push r12
+
+    ;sleep
+    mov r10, 20
+    mov r12, 6
+    call add_stats
+
+    ;love
+    mov r10, 7
+    mov r12, 9
+    call add_stats
+
+    ;toilet
+    mov r10, 6
+    mov r12, 12
+    call add_stats
+
+    ;hunger
+    mov r10, 12
+    mov r12, 0
+    call add_stats
+
+    pop r12
+    jmp selected_actions
+
+pet:
+    push r12
+
+    ;love
+    mov r10, 6
+    mov r12, 9
+    call add_stats
+
+    pop r12
+    jmp selected_actions
+
+bed:
+    push r12
+
+    ;sleep
+    mov r10, -80
+    mov r12, 6
+    call add_stats
+
+    ;toilet
+    mov r10, 25
+    mov r12, 12
+    call add_stats
+
+    ;hunger
+    mov r10, 20
+    mov r12, 0
+    call add_stats
+
+    ;thirst
+    mov r10, 40
+    mov r12, 3
+    call add_stats
+
+    pop r12
+    jmp selected_actions
+
+walk:
+    push r12
+
+    ;love
+    mov r10, 12
+    mov r12, 9
+    call add_stats
+
+    ;thirst
+    mov r10, 15
+    mov r12, 3
+    call add_stats
+
+    ;hunger
+    mov r10, 10
+    mov r12, 0
+    call add_stats
+
+    ;toilet
+    mov r10, -20
+    mov r12, 12
+    call add_stats
+
+    ;tired
+    mov r10, 20
+    mov r12, 6
+    call add_stats
+
+    pop r12
+    jmp selected_actions
+
+potty:
+    push r12
+
+    ;toilet
+    mov r10, -100
+    mov r12, 12
+    call add_stats
+
+    pop r12
+    jmp selected_actions
+
+add_stats:
+    ;offset from r12
+    ;0 food, 3 water, 6 sleep, 9 love, 12 toilet
+    add r9, 24                                  ;move to food
+    add r9, r12                                 ;add the offset to the stat
+    call convert_ascii_to_int_no_checks         ;get info from stat into rax
+    sub r9, 3                                   ;reset to stat
+
+    add rax, r10                                ;add stat
     ;make sure doesn't go below 0
+check_bot_stats:
     cmp rax, 0
-    jge continue_feed
+    jge check_top_stats
     xor rax, rax                                ;if rax goes below 0 make it 0
 
-continue_feed:
+check_top_stats:
+    cmp rax, 100
+    jle continue_stats
+    mov rax, 100                                ;if rax goes above 100 make it 100
 
+continue_stats:
     mov r8, r9                                  ;move pointer to r8 for function call
     mov r9, rax                                 ;move value to r9 to save it
     call convert_ascii
@@ -103,7 +282,9 @@ continue_feed:
     mov r9, r8                                  ;move back the pointer to pet to r9
 
     sub r9, 27                                  ;reset pointer to start of pet
-    jmp selected_actions
+    sub r9, r12                                 ;reset extra stat offset
+    ret
+
 
 
 go_back:
@@ -243,7 +424,6 @@ display_pet:
 
     sub r9, 39                 ;reset counter to the pet
 
-    ;TODO: adapt this when done
     jmp selected_actions
 
 pet_needs:
@@ -891,7 +1071,7 @@ section .data
     non_existing_id: db "You don't have a pet with the ID you're trying to access, try listing your pets to see which are available", 10 ;length 107
 
     ;selected pet actions
-    selected_prompt: db "What would you like to do with your pet?",10,"(1) Feed",10,"(2) Water",10,"(3) Play",10,"(4) Pet",10,"(5) Put to bed",10,"(6) Walk",10,"(7) Potty",10,"(8) Bury",10,"(9) Display status",10,"(0) Return",10 ;length 150
+    selected_prompt: db "What would you like to do with your pet?",10,"(1) Feed",10,"(2) Water",10,"(3) Play",10,"(4) Pet",10,"(5) Put to bed",10,"(6) Walk",10,"(7) Potty",10,"(8) Dispose",10,"(9) Display status",10,"(0) Return",10 ;length 153
     dead_pet_dispose: db "Unfortunately your pet has died do you want to dispose of it?",10,"(1) Dispose",10,"(2) Keep",10 ;length 83
 
     ;pet types all padded to length 8
@@ -905,8 +1085,8 @@ section .data
     ;pet needs all padded to length 8
     hunger: db "Hunger: "
     thirst: db "Thirst: "
-    love: db "Love:   "
     sleep: db "Sleep:  "
+    love: db "Love:   "
     toilet: db "Toilet: "
 
 section .bss
