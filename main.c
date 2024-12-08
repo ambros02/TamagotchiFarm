@@ -49,6 +49,10 @@ int passedTime(){
 
 int main() {
 
+    //uncomment this to run the syscall_examples.asm file
+    //UserInput c = take_user_input();
+    //printf("the return value: %d\n", c.value);
+
     //get the time difference
     int difference = passedTime();
 
@@ -63,6 +67,8 @@ int main() {
         perror("Error truncating file");
         return 1;
     }
+
+    //printf("number: %d\n", amount_pets);
 
     return 0;
 }
