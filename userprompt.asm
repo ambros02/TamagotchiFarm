@@ -1182,11 +1182,15 @@ end:
     lea rsi, [rel pet_status]   ;start of the buffer
     syscall
 
-    ;same system call as in testa.asm but different behavior somehow
+    ;UNCOMMENT THIS to see the truncate system call in action
+    ;If you uncomment don't forget to remove the truncation from C
+    ;same system call as in syscall_examples.asm but different behavior somehow
     ;mov rax, 0x20000C9          ;syscall ftruncate
     ;mov rdi, r8                 ;file descriptor
-    ;mov rdx, 500
+    ;mov rdx, 41                 ;amount of bytes to truncate to
     ;syscall
+
+    ;mov r11, rax               ;return the return value from truncate
 
     ;close the file
     mov rax, 0x2000006
