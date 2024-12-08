@@ -28,6 +28,7 @@ To run this software you need a device with arm architecture (or equivalent vm w
 #### Run the Game
 - Clone the Github repository
 - From the project folder run the following to assemble and compile/link the project into an executable
+  - note that clang is used, if you use another compiler/linker change it accordingly
 
 ```shell
 nasm -f macho64 syscall_examples.asm && nasm -f macho64 userprompt.asm && clang -arch x86_64 main.c syscall_examples.o userprompt.o -o program
